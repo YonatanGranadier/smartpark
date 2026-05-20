@@ -19,16 +19,14 @@
 //  CONFIGURATION – ערוך כאן
 // ============================================================
 
-#define WIFI_SSID                "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD            "YOUR_WIFI_PASSWORD"
-#define SERVER_URL               "http://192.168.1.100:5000"
+#define WIFI_SSID                "GranadierR"
+#define WIFI_PASSWORD            "0528909491"
+#define SERVER_URL               "http://192.168.1.67:5000"
 #define GATE_TYPE                "entry"   // "entry" או "exit"
 
-#define TRIG_PIN                 25
-#define ECHO_PIN                 26
-#define SERVO_PIN                18
-#define OLED_SDA_PIN             21
-#define OLED_SCL_PIN             22
+#define TRIG_PIN                 32
+#define ECHO_PIN                 33
+#define SERVO_PIN                25
 #define CAM_UART_BAUD            115200
 #define CAM_TX_PIN               17
 #define CAM_RX_PIN               16
@@ -48,36 +46,21 @@
 
 #include <Arduino.h>
 #include <Wire.h>
-#include <U8g2lib.h>
-#include <ESP32Servo.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>
 
 // ============================================================
-//  OLED  (Grove 1.12" v2.0 – SH1107 128×128)
-//  אם יש לך v1.0 (SSD1327 96×96) שנה ל:
-//  static U8G2_SSD1327_MIDAS_96X96_F_HW_I2C _oled(U8G2_R0, U8X8_PIN_NONE);
+//  OLED  (disabled – using Serial output only)
 // ============================================================
-
-static U8G2_SH1107_128X128_F_HW_I2C _oled(U8G2_R0, U8X8_PIN_NONE);
 
 void initDisplay() {
-  Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);
-  _oled.begin();
-  _oled.clearBuffer();
-  _oled.sendBuffer();
+  // no display
 }
 
 void displayMessage(const char* line1, const char* line2 = "") {
-  _oled.clearBuffer();
-  _oled.setFont(u8g2_font_ncenB12_tr);
-  _oled.drawStr(0, 24, line1);
-  if (line2 && line2[0] != '\0') {
-    _oled.setFont(u8g2_font_ncenR10_tr);
-    _oled.drawStr(0, 55, line2);
-  }
-  _oled.sendBuffer();
+  Serial.print("[DISPLAY] "); Serial.print(line1);
+  if (line2 && line2[0] != '\0') { Serial.print(" | "); Serial.print(line2); }
+  Serial.println();
 }
 
 // ============================================================
@@ -109,24 +92,32 @@ float getStableDistance(uint8_t samples = 3) {
 }
 
 // ============================================================
-//  BARRIER  Servo
+//  BARRIER  Servo  (LEDC PWM – no library needed)
 // ============================================================
 
-static Servo _barrierServo;
-static bool  _barrierOpen = false;
+#define SERVO_LEDC_FREQ 50
+#define SERVO_LEDC_RES  16
+
+static bool _barrierOpen = false;
+
+void servoWrite(int angle) {
+  uint32_t pulse_us = 500 + ((uint32_t)angle * 2000 / 180);
+  uint32_t duty     = (pulse_us * 65535UL) / 20000UL;
+  ledcWrite(SERVO_PIN, duty);
+}
 
 void initBarrier() {
-  _barrierServo.attach(SERVO_PIN);
-  _barrierServo.write(BARRIER_CLOSE_ANGLE);
+  ledcAttach(SERVO_PIN, SERVO_LEDC_FREQ, SERVO_LEDC_RES);
+  servoWrite(BARRIER_CLOSE_ANGLE);
   _barrierOpen = false;
   delay(500);
 }
 
 void openBarrier() {
-  if (!_barrierOpen) { _barrierServo.write(BARRIER_OPEN_ANGLE);  _barrierOpen = true;  Serial.println("[BARRIER] Open");   }
+  if (!_barrierOpen) { servoWrite(BARRIER_OPEN_ANGLE);  _barrierOpen = true;  Serial.println("[BARRIER] Open");   }
 }
 void closeBarrier() {
-  if (_barrierOpen)  { _barrierServo.write(BARRIER_CLOSE_ANGLE); _barrierOpen = false; Serial.println("[BARRIER] Closed"); }
+  if (_barrierOpen)  { servoWrite(BARRIER_CLOSE_ANGLE); _barrierOpen = false; Serial.println("[BARRIER] Closed"); }
 }
 
 // ============================================================
@@ -285,6 +276,26 @@ void handleCamResponse(const String& line) {
 
 // ─── Manual gate command polling ────────────────────────────
 
+// Simple JSON helpers (no library needed)
+static bool jsonBool(const String& j, const char* key) {
+  String s = String('"') + key + "\":";
+  int i = j.indexOf(s); if (i < 0) return false;
+  i += s.length(); while (i < (int)j.length() && j[i] == ' ') i++;
+  return j.substring(i, i + 4) == "true";
+}
+static int jsonInt(const String& j, const char* key) {
+  String s = String('"') + key + "\":";
+  int i = j.indexOf(s); if (i < 0) return 0;
+  i += s.length(); while (i < (int)j.length() && j[i] == ' ') i++;
+  return j.substring(i).toInt();
+}
+static String jsonStr(const String& j, const char* key) {
+  String s = String('"') + key + "\":\"";
+  int i = j.indexOf(s); if (i < 0) return "";
+  i += s.length(); int e = j.indexOf('"', i); if (e < 0) return "";
+  return j.substring(i, e);
+}
+
 void checkManualGateCommand() {
   if (!ensureWiFiConnected()) return;
 
@@ -297,13 +308,12 @@ void checkManualGateCommand() {
   String body = http.getString();
   http.end();
 
-  StaticJsonDocument<256> doc;
-  if (deserializeJson(doc, body) != DeserializationError::Ok) return;
-  if (!doc["has_command"].as<bool>()) return;
+  if (!jsonBool(body, "has_command")) return;
 
-  int         cmdId   = doc["command_id"].as<int>();
-  const char* empName = doc["employee_name"] | "Employee";
-  char        nameBuf[33]; strncpy(nameBuf, empName, 32); nameBuf[32] = '\0';
+  int    cmdId   = jsonInt(body, "command_id");
+  String empName = jsonStr(body, "employee_name");
+  if (empName.isEmpty()) empName = "Employee";
+  char nameBuf[33]; empName.toCharArray(nameBuf, 33);
 
   Serial.printf("[GATE] Manual: %s (cmd %d)\n", nameBuf, cmdId);
   displayMessage(nameBuf, (String(GATE_TYPE) == "entry") ? "Manual entry" : "Manual exit");

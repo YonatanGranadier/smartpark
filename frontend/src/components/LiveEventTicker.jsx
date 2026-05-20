@@ -24,14 +24,14 @@ export default function LiveEventTicker({ events, connected }) {
   return (
     <ul className="space-y-2 max-h-64 overflow-y-auto">
       {events.map((ev, i) => {
-        const ts   = new Date(ev.data.timestamp)
-        const isOk = ev.event === 'attendance_event'
+        const ts   = new Date(ev.timestamp)
+        const isOk = ev.event !== 'denied'
         return (
           <li
             key={i}
             className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm
               ${isOk
-                ? ev.data.event_type === 'entry'
+                ? ev.event === 'entry'
                   ? 'bg-green-50 border border-green-200'
                   : 'bg-blue-50 border border-blue-200'
                 : 'bg-red-50 border border-red-200'
@@ -40,31 +40,31 @@ export default function LiveEventTicker({ events, connected }) {
             <div className="flex items-center gap-2">
               <span className="text-lg">
                 {isOk
-                  ? ev.data.event_type === 'entry' ? '🚗' : '🚙'
+                  ? ev.event === 'entry' ? '🚗' : '🚙'
                   : '🚫'}
               </span>
               <div>
                 <p className="font-medium leading-tight">
                   {isOk
-                    ? ev.data.employee_name
-                    : ev.data.reason}
+                    ? ev.employee_name
+                    : ev.reason}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {ev.data.plate}
-                  {ev.data.department ? ` · ${ev.data.department}` : ''}
+                  {ev.plate}
+                  {ev.department ? ` · ${ev.department}` : ''}
                 </p>
               </div>
             </div>
             <div className="text-left flex flex-col items-end gap-1">
               <span className={`text-xs font-medium
                 ${isOk
-                  ? ev.data.event_type === 'entry'
+                  ? ev.event === 'entry'
                     ? 'text-green-700'
                     : 'text-blue-700'
                   : 'text-red-700'
                 }`}>
                 {isOk
-                  ? ev.data.event_type === 'entry' ? '⬇ כניסה' : '⬆ יציאה'
+                  ? ev.event === 'entry' ? '⬇ כניסה' : '⬆ יציאה'
                   : '✕ נדחה'}
               </span>
               <span className="text-xs text-gray-400">

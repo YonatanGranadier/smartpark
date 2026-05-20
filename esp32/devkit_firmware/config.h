@@ -6,12 +6,12 @@
 // ============================================================
 
 // --- WiFi ---
-#define WIFI_SSID       "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
+#define WIFI_SSID       "GranadierR"
+#define WIFI_PASSWORD   "0528909491"
 #define WIFI_TIMEOUT_MS  15000
 
 // --- Server ---
-#define SERVER_URL      "http://192.168.1.100:5000"
+#define SERVER_URL      "http://192.168.1.67:5000"
 
 // סוג השער: "entry" = כניסה, "exit" = יציאה
 #define GATE_TYPE       "entry"
@@ -21,11 +21,11 @@
 // ============================================================
 
 // HC-SR04 – חיישן אולטרסוני
-#define TRIG_PIN        25
-#define ECHO_PIN        26
+#define TRIG_PIN        32
+#define ECHO_PIN        33
 
 // Servo – מחסום חניון
-#define SERVO_PIN       18
+#define SERVO_PIN       25
 
 // Grove OLED 1.12" I2C  (פיני I2C ברירת מחדל של DEVKITC)
 #define OLED_SDA_PIN    21

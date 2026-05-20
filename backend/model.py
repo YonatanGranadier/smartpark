@@ -5,9 +5,13 @@ Accepts raw JPEG bytes as sent by the ESP32-CAM and returns the
 detected license plate text using the Roboflow serverless workflow.
 """
 
+import os
 import cv2
 import numpy as np
+from dotenv import load_dotenv
 from inference_sdk import InferenceHTTPClient
+
+load_dotenv()
 
 _client = None
 
@@ -17,7 +21,7 @@ def _get_client() -> InferenceHTTPClient:
     if _client is None:
         _client = InferenceHTTPClient(
             api_url="https://serverless.roboflow.com",
-            api_key="BphBg9DRtD09Bt4RjiVQ"
+            api_key=os.getenv('ROBOFLOW_API_KEY', '')
         )
     return _client
 

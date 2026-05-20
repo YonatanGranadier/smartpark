@@ -109,12 +109,13 @@ class AttendanceRecord(db.Model):
 
     def to_dict(self):
         return {
-            'id':            self.id,
-            'employee_id':   self.employee_id,
-            'employee_name': self.employee.name if self.employee else '',
-            'event_type':    self.event_type,
-            'timestamp':     self.timestamp.isoformat(),
-            'gate_id':       self.gate_id,
+            'id':                  self.id,
+            'employee_id':         self.employee_id,
+            'employee_name':       self.employee.name if self.employee else '',
+            'employee_department': self.employee.department if self.employee else '',
+            'event_type':          self.event_type,
+            'timestamp':           self.timestamp.isoformat(),
+            'gate_id':             self.gate_id,
         }
 
 
@@ -476,8 +477,21 @@ def get_attendance():
     emp_id = request.args.get('employee_id', type=int)
     if emp_id:
         q = q.filter_by(employee_id=emp_id)
-    limit = request.args.get('limit', 50, type=int)
-    recs = q.order_by(AttendanceRecord.timestamp.desc()).limit(limit).all()
+    date_from = request.args.get('date_from')
+    date_to   = request.args.get('date_to')
+    if date_from:
+        q = q.filter(AttendanceRecord.timestamp >= date_from)
+    if date_to:
+        q = q.filter(AttendanceRecord.timestamp <= date_to + ' 23:59:59')
+    # Only apply a default limit when no date range is specified to avoid truncating filtered results
+    limit = request.args.get('limit', type=int)
+    q_ordered = q.order_by(AttendanceRecord.timestamp.desc())
+    if limit:
+        recs = q_ordered.limit(limit).all()
+    elif not date_from and not date_to:
+        recs = q_ordered.limit(50).all()
+    else:
+        recs = q_ordered.all()
     return jsonify([r.to_dict() for r in recs])
 
 
@@ -512,11 +526,14 @@ def get_my_status():
 
 @app.route('/api/attendance/reports/work-hours', methods=['GET'])
 def work_hours_report():
-    from_date = request.args.get('from_date')
-    to_date   = request.args.get('to_date')
+    from_date = request.args.get('date_from')
+    to_date   = request.args.get('date_to')
+    emp_id_filter = request.args.get('employee_id', type=int)
 
-    q = AttendanceRecord.query.order_by(
-        AttendanceRecord.employee_id, AttendanceRecord.timestamp)
+    q = AttendanceRecord.query
+    if emp_id_filter:
+        q = q.filter_by(employee_id=emp_id_filter)
+    q = q.order_by(AttendanceRecord.employee_id, AttendanceRecord.timestamp)
     all_recs = q.all()
 
     by_emp = defaultdict(list)
@@ -532,20 +549,41 @@ def work_hours_report():
     for emp_id, records in by_emp.items():
         emp = db.session.get(Employee, emp_id)
         total_minutes = 0
+        sessions = []
         i = 0
-        while i < len(records) - 1:
-            if records[i].event_type == 'entry' and records[i + 1].event_type == 'exit':
-                diff = records[i + 1].timestamp - records[i].timestamp
-                total_minutes += diff.total_seconds() / 60
-                i += 2
+        while i < len(records):
+            if records[i].event_type == 'entry':
+                entry_rec = records[i]
+                exit_rec = records[i + 1] if i + 1 < len(records) and records[i + 1].event_type == 'exit' else None
+                if exit_rec:
+                    diff = exit_rec.timestamp - entry_rec.timestamp
+                    duration_minutes = diff.total_seconds() / 60
+                    total_minutes += duration_minutes
+                    sessions.append({
+                        'date':           entry_rec.timestamp.date().isoformat(),
+                        'entry_time':     entry_rec.timestamp.isoformat(),
+                        'exit_time':      exit_rec.timestamp.isoformat(),
+                        'duration_hours': round(duration_minutes / 60, 1),
+                    })
+                    i += 2
+                else:
+                    sessions.append({
+                        'date':           entry_rec.timestamp.date().isoformat(),
+                        'entry_time':     entry_rec.timestamp.isoformat(),
+                        'exit_time':      None,
+                        'duration_hours': None,
+                    })
+                    i += 1
             else:
                 i += 1
         result.append({
-            'employee_id':   emp_id,
-            'employee_name': emp.name if emp else 'Unknown',
-            'department':    emp.department if emp else '',
-            'total_minutes': round(total_minutes),
-            'total_hours':   round(total_minutes / 60, 1),
+            'employee_id':     emp_id,
+            'employee_name':   emp.name if emp else 'Unknown',
+            'employee_number': emp.employee_number if emp else '',
+            'department':      emp.department if emp else '',
+            'total_minutes':   round(total_minutes),
+            'total_hours':     round(total_minutes / 60, 1),
+            'sessions':        sessions,
         })
 
     result.sort(key=lambda x: x['total_hours'], reverse=True)

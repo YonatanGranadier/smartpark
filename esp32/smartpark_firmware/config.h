@@ -6,13 +6,13 @@
 // ============================================================
 
 // --- WiFi ---
-#define WIFI_SSID       "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD   "YOUR_WIFI_PASSWORD"
+#define WIFI_SSID       "GranadierR"
+#define WIFI_PASSWORD   "0528909491"
 #define WIFI_TIMEOUT_MS  15000
 
 // --- Server ---
 // כתובת השרת Flask  (דוגמה: "http://192.168.1.100:5000")
-#define SERVER_URL      "http://192.168.1.100:5000"
+#define SERVER_URL      "http://192.168.1.67:5000"
 
 // סוג השער: "entry" = כניסה, "exit" = יציאה
 #define GATE_TYPE       "entry"

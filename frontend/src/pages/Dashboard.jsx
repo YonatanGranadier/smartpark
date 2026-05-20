@@ -5,7 +5,7 @@ import { getCurrentParking, getTodayAttendance, getEmployees } from '../api/api'
 import StatCard       from '../components/StatCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 
-const SOCKET_URL = 'http://localhost:5000'
+const SOCKET_URL = `http://${window.location.hostname}:5000`
 
 export default function Dashboard() {
   const [parking,    setParking]    = useState([])
