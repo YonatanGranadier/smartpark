@@ -9,9 +9,8 @@
  * Board: "ESP32 Dev Module"
  *
  * חיווט:
- *   HC-SR04   TRIG → GPIO25 | ECHO → GPIO26
- *   Servo     SIG  → GPIO18
- *   Grove OLED SDA → GPIO21 | SCL  → GPIO22
+ *   HC-SR04   TRIG → GPIO32 | ECHO → GPIO33
+ *   Servo     SIG  → GPIO25
  *   UART לCAM: TX(17) → CAM RX(3)  |  RX(16) ← CAM TX(1)
  */
 
@@ -31,7 +30,7 @@
 #define CAM_TX_PIN               17
 #define CAM_RX_PIN               16
 
-#define DETECTION_DISTANCE_CM    80.0f
+#define DETECTION_DISTANCE_CM    20.0f
 #define BARRIER_OPEN_DURATION    8000
 #define DETECTION_COOLDOWN       8000
 #define GATE_POLL_INTERVAL       3000
@@ -179,6 +178,8 @@ void setup() {
   connectWiFi();
   displayMessage("SmartPark Ready", "Gate: " GATE_TYPE);
   Serial.println("[SYS] Ready. Gate: " GATE_TYPE);
+  Serial.printf("[SYS] Pins: TRIG=%d ECHO=%d SERVO=%d DETECT=%.0fcm\n",
+    TRIG_PIN, ECHO_PIN, SERVO_PIN, DETECTION_DISTANCE_CM);
 }
 
 // ─── Loop ───────────────────────────────────────────────────

@@ -2,22 +2,16 @@
 import { format } from 'date-fns'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { checkin, checkout, getMyStatus, getAttendance, changePassword } from '../api/api'
+import { checkin, checkout, getMyStatus, getAttendance } from '../api/api'
 
 export default function EmployeePortal() {
   const { employee, logout } = useAuth()
   const navigate = useNavigate()
 
-  const [status,    setStatus]    = useState(null)    // 'in' | 'out'
-  const [loading,   setLoading]   = useState(false)
-  const [lastCmd,   setLastCmd]   = useState(null)    // {ok, gate_type}
+  const [status,     setStatus]     = useState(null)
+  const [loading,    setLoading]    = useState(false)
+  const [lastCmd,    setLastCmd]    = useState(null)
   const [recentRecs, setRecentRecs] = useState([])
-
-  // ×©×™× ×•×™ ×¡×™×¡×ž×”
-  const [pwForm,  setPwForm]  = useState({ password: '', confirm: '' })
-  const [pwError, setPwError] = useState('')
-  const [pwOk,    setPwOk]    = useState(false)
-  const [showPw,  setShowPw]  = useState(false)
 
   const loadData = async () => {
     try {
@@ -43,8 +37,8 @@ export default function EmployeePortal() {
       await loadData()
     } catch (err) {
       const msg = err.response?.status === 409
-        ? '××ª×” ×›×‘×¨ ×¨×©×•× ×›×ž×• × ×ž×¦× ×‘×—× ×™×•×Ÿ'
-        : err.response?.data?.detail || '×©×’×™××” ×‘×ª×§×©×•×¨×ª'
+        ? 'אתה כבר רשום כנמצא בחניון'
+        : err.response?.data?.detail || 'שגיאה בתקשורת'
       setLastCmd({ ok: false, msg })
     } finally { setLoading(false) }
   }
@@ -57,20 +51,10 @@ export default function EmployeePortal() {
       await loadData()
     } catch (err) {
       const msg = err.response?.status === 409
-        ? '××™× ×š ×¨×©×•× ×›×ž×• × ×ž×¦× ×‘×—× ×™×•×Ÿ'
-        : err.response?.data?.detail || '×©×’×™××” ×‘×ª×§×©×•×¨×ª'
+        ? 'אינך רשום כנמצא בחניון'
+        : err.response?.data?.detail || 'שגיאה בתקשורת'
       setLastCmd({ ok: false, msg })
     } finally { setLoading(false) }
-  }
-
-  const handleChangePassword = async (e) => {
-    e.preventDefault(); setPwError('')
-    if (pwForm.password !== pwForm.confirm) { setPwError('×”×¡×™×¡×ž××•×ª ××™× ×Ÿ ×ª×•××ž×•×ª'); return }
-    try {
-      await changePassword({ password: pwForm.password })
-      setPwOk(true); setPwForm({ password: '', confirm: '' })
-      setTimeout(() => setPwOk(false), 4000)
-    } catch (err) { setPwError(err.response?.data?.detail || '×©×’×™××”') }
   }
 
   if (!employee) return null
@@ -82,55 +66,53 @@ export default function EmployeePortal() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-md mx-auto px-4 py-8 space-y-5">
 
-        {/* ×›×¨×˜×™×¡ ×¢×•×‘×“ */}
+        {/* כרטיס עובד */}
         <div className="bg-blue-700 text-white rounded-2xl p-6 shadow-lg">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-blue-200 text-sm">×©×œ×•×,</p>
+              <p className="text-blue-200 text-sm">שלום,</p>
               <h1 className="text-2xl font-bold mt-0.5">{employee.name}</h1>
               <p className="text-blue-200 text-sm mt-1">
-                ×¢×•×‘×“ {employee.employee_number}
-                {employee.department ? ` Â· ${employee.department}` : ''}
+                עובד {employee.employee_number}
+                {employee.department ? ` · ${employee.department}` : ''}
               </p>
             </div>
             <div className="text-center">
-              <div className="text-4xl">ðŸ‘¤</div>
+              <div className="text-4xl">👤</div>
               {status && (
                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full mt-1 inline-block
                   ${isIn ? 'bg-green-400 text-green-900' : 'bg-gray-300 text-gray-700'}`}>
-                  {isIn ? 'â— ×‘×—× ×™×”' : 'â—‹ ×‘×—×•×¥'}
+                  {isIn ? '● בחניה' : '○ בחוץ'}
                 </span>
               )}
             </div>
           </div>
-          <button onClick={() => { logout(); navigate('/login') }}
-            className="mt-4 text-xs text-blue-200 hover:text-white underline">
-            ×”×ª× ×ª×§
+          <button
+            onClick={() => { logout(); navigate('/login') }}
+            className="mt-4 text-xs text-blue-200 hover:text-white underline"
+          >
+            התנתק
           </button>
         </div>
 
-        {/* â”€â”€â”€ ×›×¤×ª×•×¨×™ ×›× ×™×¡×” / ×™×¦×™××” â”€â”€â”€ */}
+        {/* כפתורי כניסה / יציאה */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <h2 className="font-semibold text-gray-800 mb-4 text-center">ðŸš— ×“×•×•×— × ×•×›×—×•×ª</h2>
+          <h2 className="font-semibold text-gray-800 mb-4 text-center">🚗 דווח נוכחות</h2>
 
-          {/* ×”×•×“×¢×ª ××™×©×•×¨ */}
           {lastCmd?.ok && (
-            <div className="mb-4 text-center bg-green-50 border border-green-200 text-green-800
-                            rounded-xl py-3 text-sm font-medium">
+            <div className="mb-4 text-center bg-green-50 border border-green-200 text-green-800 rounded-xl py-3 text-sm font-medium">
               {lastCmd.gate_type === 'entry'
-                ? 'âœ… ×›× ×™×¡×” × ×¨×©×ž×” â€“ ×”×©×¢×¨ × ×¤×ª×—!'
-                : 'âœ… ×™×¦×™××” × ×¨×©×ž×” â€“ ×”×©×¢×¨ × ×¤×ª×—!'}
+                ? '✅ כניסה נרשמה – השער נפתח!'
+                : '✅ יציאה נרשמה – השער נפתח!'}
             </div>
           )}
           {lastCmd?.ok === false && (
-            <div className="mb-4 text-center bg-red-50 border border-red-200 text-red-700
-                            rounded-xl py-3 text-sm">
-              âŒ {lastCmd.msg}
+            <div className="mb-4 text-center bg-red-50 border border-red-200 text-red-700 rounded-xl py-3 text-sm">
+              ❌ {lastCmd.msg}
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-4">
-            {/* ×›× ×™×¡×” */}
             <button
               onClick={handleCheckin}
               disabled={loading || isIn}
@@ -138,11 +120,10 @@ export default function EmployeePortal() {
                          bg-green-500 hover:bg-green-600 text-white transition-colors
                          disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
             >
-              <span className="text-3xl">â¬‡ï¸</span>
-              <span>×›× ×™×¡×” ×œ×—× ×™×”</span>
+              <span className="text-3xl">⬇️</span>
+              <span>כניסה לחניה</span>
             </button>
 
-            {/* ×™×¦×™××” */}
             <button
               onClick={handleCheckout}
               disabled={loading || isOut}
@@ -150,25 +131,25 @@ export default function EmployeePortal() {
                          bg-red-500 hover:bg-red-600 text-white transition-colors
                          disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
             >
-              <span className="text-3xl">â¬†ï¸</span>
-              <span>×™×¦×™××” ×ž×”×—× ×™×”</span>
+              <span className="text-3xl">⬆️</span>
+              <span>יציאה מהחניה</span>
             </button>
           </div>
 
           {loading && (
-            <p className="text-center text-gray-500 text-sm mt-3">â³ ×©×•×œ×— ×¤×§×•×“×” ×œ×©×¨×ª...</p>
+            <p className="text-center text-gray-500 text-sm mt-3">⏳ שולח פקודה לשרת...</p>
           )}
 
           <p className="text-center text-xs text-gray-400 mt-4">
-            ×œ×—×™×¦×” ×¢×œ ×”×›×¤×ª×•×¨ ×ž×¢×“×›× ×ª ××ª ×”× ×•×›×—×•×ª <strong>×•×¤×•×ª×—×ª ××ª ×”×©×¢×¨</strong> ××•×˜×•×ž×˜×™×ª.
+            לחיצה על הכפתור מעדכנת את הנוכחות <strong>ופותחת את השער</strong> אוטומטית.
           </p>
         </div>
 
-        {/* â”€â”€â”€ × ×•×›×—×•×ª ××—×¨×•× ×” â”€â”€â”€ */}
+        {/* פעילות אחרונה */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <h2 className="font-semibold text-gray-800 mb-4">ðŸ“‹ ×¤×¢×™×œ×•×ª ××—×¨×•× ×”</h2>
+          <h2 className="font-semibold text-gray-800 mb-4">📋 פעילות אחרונה</h2>
           {recentRecs.length === 0 ? (
-            <p className="text-gray-400 text-sm text-center py-4">××™×Ÿ ×¨×©×•×ž×•×ª ×¢×“×™×™×Ÿ</p>
+            <p className="text-gray-400 text-sm text-center py-4">אין רשומות עדיין</p>
           ) : (
             <ul className="space-y-2">
               {recentRecs.map(rec => (
@@ -177,7 +158,7 @@ export default function EmployeePortal() {
                     ${rec.event_type === 'entry'
                       ? 'bg-green-100 text-green-700'
                       : 'bg-red-100 text-red-700'}`}>
-                    {rec.event_type === 'entry' ? 'â¬‡ ×›× ×™×¡×”' : 'â¬† ×™×¦×™××”'}
+                    {rec.event_type === 'entry' ? '⬇ כניסה' : '⬆ יציאה'}
                   </span>
                   <span className="text-gray-500">
                     {format(new Date(rec.timestamp), 'dd/MM  HH:mm')}
@@ -185,34 +166,6 @@ export default function EmployeePortal() {
                 </li>
               ))}
             </ul>
-          )}
-        </div>
-
-        {/* â”€â”€â”€ ×©×™× ×•×™ ×¡×™×¡×ž×” â”€â”€â”€ */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-          <button onClick={() => setShowPw(!showPw)}
-            className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-800 w-full">
-            <span>ðŸ” ×©×™× ×•×™ ×¡×™×¡×ž×”</span>
-            <span className="mr-auto text-gray-400">{showPw ? 'â–²' : 'â–¼'}</span>
-          </button>
-          {showPw && (
-            <form onSubmit={handleChangePassword} className="mt-4 space-y-3">
-              <div>
-                <label className="label">×¡×™×¡×ž×” ×—×“×©×”</label>
-                <input type="password" className="input" required minLength={6}
-                  value={pwForm.password}
-                  onChange={e => setPwForm(f => ({ ...f, password: e.target.value }))} />
-              </div>
-              <div>
-                <label className="label">××ž×ª ×¡×™×¡×ž×”</label>
-                <input type="password" className="input" required
-                  value={pwForm.confirm}
-                  onChange={e => setPwForm(f => ({ ...f, confirm: e.target.value }))} />
-              </div>
-              {pwError && <p className="text-red-600 text-sm">{pwError}</p>}
-              {pwOk    && <p className="text-green-600 text-sm">âœ“ ×”×¡×™×¡×ž×” ×¢×•×“×›× ×”!</p>}
-              <button type="submit" className="btn-primary w-full">×©×ž×•×¨ ×¡×™×¡×ž×”</button>
-            </form>
           )}
         </div>
 

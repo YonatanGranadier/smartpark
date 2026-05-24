@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext'
 export default function Login() {
   const { login }       = useAuth()
   const navigate        = useNavigate()
-  const [form,   setForm]   = useState({ employee_number: '', password: '' })
+  const [form,   setForm]   = useState({ plate_number: '' })
   const [error,  setError]  = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -14,7 +14,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(form.employee_number, form.password)
+      await login(form.plate_number)
       navigate('/portal')
     } catch (err) {
       setError(err.response?.data?.detail || 'שגיאה בהתחברות')
@@ -37,25 +37,14 @@ export default function Login() {
         {/* טופס */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="label">מספר עובד</label>
+            <label className="label">לוחית רישוי</label>
             <input
               className="input text-center tracking-widest text-lg"
-              placeholder="12345"
-              value={form.employee_number}
+              placeholder="123-45-678"
+              value={form.plate_number}
               required
               autoFocus
-              onChange={e => setForm(f => ({ ...f, employee_number: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="label">סיסמה</label>
-            <input
-              className="input"
-              type="password"
-              placeholder="••••••"
-              value={form.password}
-              required
-              onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+              onChange={e => setForm(f => ({ ...f, plate_number: e.target.value }))}
             />
           </div>
 
@@ -74,9 +63,7 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-gray-400 mt-6">
-          לאיפוס סיסמה פנה/י למנהל המערכת
-        </p>
+
       </div>
     </div>
   )

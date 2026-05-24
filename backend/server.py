@@ -266,11 +266,16 @@ def _record_attendance(emp, event_type: str, gate_id: str = 'main', plate: str =
 @app.route('/api/auth/login', methods=['POST'])
 def login():
     data = request.get_json()
-    emp = Employee.query.filter_by(employee_number=data.get('employee_number')).first()
-    if not emp or not emp.password_hash or \
-            not verify_password(data.get('password', ''), emp.password_hash):
-        return jsonify({'detail': 'מספר עובד או סיסמה שגויים'}), 401
-    if not emp.is_active:
+    plate_input = (data.get('plate_number') or '').strip().upper().replace('-', '').replace(' ', '')
+    if not plate_input:
+        return jsonify({'detail': 'לוחית רישוי חסרה'}), 400
+    # Compare normalized (no dashes) against all plates
+    all_plates = LicensePlate.query.all()
+    lp = next((p for p in all_plates if p.plate_number.replace('-', '').replace(' ', '') == plate_input), None)
+    if not lp:
+        return jsonify({'detail': 'לוחית רישוי לא נמצאה'}), 401
+    emp = lp.employee
+    if not emp or not emp.is_active:
         return jsonify({'detail': 'משתמש אינו פעיל'}), 403
     return jsonify({'access_token': create_token(emp.id), 'token_type': 'bearer',
                     'employee': emp.to_dict()})
@@ -404,23 +409,43 @@ def remove_plate(emp_id, plate_number):
 def recognize_plate():
     """ESP32-CAM שולח JPEG bytes. השרת מזהה לוחית באמצעות Roboflow מקומי + EasyOCR,
     מחפש בבסיס הנתונים ומעדכן את הנוכחות בזמן אמת."""
+    from datetime import datetime as _dt
+    ts = lambda: _dt.now().strftime('%H:%M:%S')
+
     gate_type   = request.args.get('gate_type', 'entry')
     image_bytes = request.data
+
+    print(f'\n[{ts()}] ── PLATE RECOGNIZE ──────────────────────────')
+    print(f'[{ts()}]  gate_type  : {gate_type}')
+    print(f'[{ts()}]  image size : {len(image_bytes):,} bytes' if image_bytes else f'[{ts()}]  image size : 0 (EMPTY)')
+
     if not image_bytes:
+        print(f'[{ts()}]  ❌ No image received')
         return jsonify({'approved': False, 'reason': 'No image'}), 400
 
     plate = _roboflow_recognize_plate(image_bytes)
+    print(f'[{ts()}]  plate read : "{plate}" {"✅" if plate else "❌ (nothing detected)"}')
+
     if not plate:
         socketio.emit('attendance_event', {
             'event': 'denied', 'reason': 'לא ניתן לקרוא לוחית'
         })
+        print(f'[{ts()}]  → DENIED (unreadable plate)')
+        print(f'[{ts()}] ─────────────────────────────────────────────\n')
         return jsonify({'approved': False, 'reason': 'Cannot read plate', 'plate': ''})
 
-    lp = LicensePlate.query.filter_by(plate_number=plate).first()
+    # Normalise plate for DB lookup (strip dashes/spaces)
+    plate_norm = plate.upper().replace('-', '').replace(' ', '')
+    all_plates = LicensePlate.query.all()
+    lp = next((p for p in all_plates if p.plate_number.replace('-', '').replace(' ', '') == plate_norm), None)
+    print(f'[{ts()}]  DB lookup  : {"found → emp_id=" + str(lp.employee_id) if lp else "NOT FOUND"}')
+
     if not lp:
         socketio.emit('attendance_event', {
             'event': 'denied', 'plate': plate, 'reason': 'לוחית לא רשומה'
         })
+        print(f'[{ts()}]  → DENIED (unknown plate)')
+        print(f'[{ts()}] ─────────────────────────────────────────────\n')
         return jsonify({'approved': False, 'reason': 'Unknown plate', 'plate': plate})
 
     emp = db.session.get(Employee, lp.employee_id)
@@ -428,9 +453,14 @@ def recognize_plate():
         socketio.emit('attendance_event', {
             'event': 'denied', 'plate': plate, 'reason': 'עובד לא פעיל'
         })
+        print(f'[{ts()}]  → DENIED (inactive employee: {emp.name if emp else "None"})')
+        print(f'[{ts()}] ─────────────────────────────────────────────\n')
         return jsonify({'approved': False, 'reason': 'Inactive employee', 'plate': plate})
 
     rec = _record_attendance(emp, gate_type, gate_id=gate_type, plate=plate)
+    print(f'[{ts()}]  employee   : {emp.name} (#{emp.employee_number})')
+    print(f'[{ts()}]  → ✅ APPROVED — attendance id={rec.id}')
+    print(f'[{ts()}] ─────────────────────────────────────────────\n')
     return jsonify({
         'approved':      True,
         'employee_name': emp.name,

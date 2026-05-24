@@ -24,8 +24,8 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
-  const login = async (employee_number, password) => {
-    const r = await api.post('/auth/login', { employee_number, password })
+  const login = async (plate_number) => {
+    const r = await api.post('/auth/login', { plate_number })
     localStorage.setItem('sp_token', r.data.access_token)
     api.defaults.headers.common['Authorization'] = `Bearer ${r.data.access_token}`
     setEmployee(r.data.employee)

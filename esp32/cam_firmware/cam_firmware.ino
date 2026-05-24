@@ -1,34 +1,27 @@
-/**
+﻿/**
  * SmartPark – ESP32-CAM AI Thinker  (Single-File)
  * =================================================
- * ערוך את ה-CONFIGURATION בחלק הראשון לפי הסביבה שלך.
- *
- * ספריות נדרשות (Arduino Library Manager):
- *   ArduinoJson  |  esp32-camera (built-in עם ה-board)
- *
  * Board: "AI Thinker ESP32-CAM"
  *
  * UART לתקשורת עם DEVKITC:
- *   GPIO1 (U0T) TX → DEVKITC RX (GPIO16)
- *   GPIO3 (U0R) RX ← DEVKITC TX (GPIO17)
- * ⚠️ נתק USB מה-CAM לפני הפעלת המערכת!
+ *   GPIO1 (U0TX) → DEVKITC RX (GPIO16)
+ *   GPIO3 (U0RX) ← DEVKITC TX (GPIO17)
+ *
+ * ⚠️  נתק את מתאם ה-USB מה-CAM לפני הפעלת המערכת!
+ *     פעל את ה-CAM מ-5V/GND של ה-DEVKITC.
  */
 
 // ============================================================
-//  CONFIGURATION – ערוך כאן
+//  CONFIGURATION
 // ============================================================
+#define WIFI_SSID        "GranadierR"
+#define WIFI_PASSWORD    "0528909491"
+#define SERVER_URL       "http://192.168.1.67:5000"
+#define GATE_TYPE        "entry"   // "entry" או "exit"
 
-#define WIFI_SSID         "YOUR_WIFI_SSID"
-#define WIFI_PASSWORD     "YOUR_WIFI_PASSWORD"
-#define SERVER_URL        "http://192.168.1.100:5000"
-#define GATE_TYPE         "entry"   // "entry" או "exit"
-
-// Logic
 #define DEVKIT_UART_BAUD  115200
-#define WIFI_RETRY_COUNT  5
-
-// Flash LED
 #define FLASH_LED_PIN     4
+#define HTTP_TIMEOUT_MS   20000
 
 // Camera pin mapping – AI Thinker (אל תשנה!)
 #define PWDN_GPIO_NUM     32
@@ -49,32 +42,47 @@
 #define PCLK_GPIO_NUM     22
 
 // ============================================================
-//  DEBUG MACRO
-//  #define PRODUCTION  → debug messages compile to nothing
-//  comment it out     → debug goes to Serial2 (GPIO14/15)
-// ============================================================
-
-#define PRODUCTION
-
-#ifdef PRODUCTION
-  #define DBG(...)  do {} while(0)
-#else
-  #define DBG(fmt, ...)  Serial2.printf(fmt, ##__VA_ARGS__)
-#endif
-
-// ============================================================
 //  INCLUDES
 // ============================================================
-
 #include "esp_camera.h"
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <ArduinoJson.h>
+
+// ============================================================
+//  Simple JSON helpers (no extra library needed)
+// ============================================================
+static bool jsonBool(const String& j, const char* key) {
+  String s = String('"') + key + "\":";
+  int i = j.indexOf(s);
+  if (i < 0) return false;
+  i += s.length();
+  while (i < (int)j.length() && j[i] == ' ') i++;
+  return j.substring(i, i + 4) == "true";
+}
+
+static String jsonStr(const String& j, const char* key) {
+  String s = String('"') + key + "\":\"";
+  int i = j.indexOf(s);
+  if (i < 0) return "";
+  i += s.length();
+  int e = j.indexOf('"', i);
+  if (e < 0) return "";
+  return j.substring(i, e);
+}
+
+// ============================================================
+//  LED helpers
+// ============================================================
+void ledBlink(int times, int onMs = 120, int offMs = 120) {
+  for (int i = 0; i < times; i++) {
+    digitalWrite(FLASH_LED_PIN, HIGH); delay(onMs);
+    digitalWrite(FLASH_LED_PIN, LOW);  delay(offMs);
+  }
+}
 
 // ============================================================
 //  CAMERA  (AI Thinker OV2640)
 // ============================================================
-
 bool initCamera() {
   camera_config_t cfg = {};
   cfg.ledc_channel = LEDC_CHANNEL_0;
@@ -94,137 +102,161 @@ bool initCamera() {
   cfg.xclk_freq_hz = 20000000;
   cfg.pixel_format = PIXFORMAT_JPEG;
   cfg.fb_location  = CAMERA_FB_IN_PSRAM;
+  // VGA (640x480) – good balance of quality vs upload speed for OCR
   cfg.frame_size   = FRAMESIZE_VGA;
-  cfg.jpeg_quality = 12;
-  cfg.fb_count     = 1;
+  cfg.jpeg_quality = 8;   // lower = better quality (1-63)
+  cfg.fb_count     = psramFound() ? 2 : 1;
 
-  if (psramFound()) {
-    cfg.frame_size   = FRAMESIZE_SVGA;
-    cfg.jpeg_quality = 10;
-    cfg.fb_count     = 2;
-  }
-
-  esp_err_t err = esp_camera_init(&cfg);
-  if (err != ESP_OK) {
-    DBG("[CAM] Init failed: 0x%x\n", err);
-    return false;
-  }
+  if (esp_camera_init(&cfg) != ESP_OK) return false;
 
   sensor_t *s = esp_camera_sensor_get();
-  if (s) { s->set_brightness(s, 1); s->set_saturation(s, -1); }
-
-  DBG("[CAM] Initialized OK\n");
+  if (s) {
+    s->set_brightness(s,  1);
+    s->set_saturation(s, -1);
+    s->set_sharpness(s,   1);
+  }
   return true;
 }
 
-/** צלם תמונה. שחרר עם esp_camera_fb_return(fb) אחרי שימוש. */
-camera_fb_t* captureImage() {
+// Warm up: first frame after init is often under-exposed – discard it
+void warmupCamera() {
   camera_fb_t* fb = esp_camera_fb_get();
-  if (!fb) DBG("[CAM] Capture failed\n");
-  return fb;
+  if (fb) esp_camera_fb_return(fb);
+  delay(200);
 }
 
 // ============================================================
-//  SETUP & LOOP
+//  WIFI
 // ============================================================
+void connectWiFi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int waited = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    waited += 500;
+    if (waited >= 30000) {   // 30 s – restart and try again
+      ESP.restart();
+    }
+  }
+}
 
+bool ensureWiFi() {
+  if (WiFi.status() == WL_CONNECTED) return true;
+  WiFi.reconnect();
+  for (int i = 0; i < 20; i++) {   // wait up to 10 s
+    if (WiFi.status() == WL_CONNECTED) return true;
+    delay(500);
+  }
+  return false;
+}
+
+// ============================================================
+//  SETUP
+// ============================================================
 void handleCapture();  // forward declaration
 
 void setup() {
   Serial.begin(DEVKIT_UART_BAUD);
-  delay(100);
-
-  DBG("[CAM] Starting...\n");
+  delay(200);
+  Serial.flush();   // clear any noise on the line
 
   pinMode(FLASH_LED_PIN, OUTPUT);
   digitalWrite(FLASH_LED_PIN, LOW);
 
+  // Camera init – rapid blink on failure
   if (!initCamera()) {
-    while (true) { Serial.println("ERROR"); delay(5000); }
+    while (true) {
+      ledBlink(5, 60, 60);
+      Serial.println("ERROR");
+      delay(3000);
+    }
   }
+  warmupCamera();
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  DBG("[WiFi] Connecting");
-  int tries = 0;
-  while (WiFi.status() != WL_CONNECTED && tries < WIFI_RETRY_COUNT * 10) {
-    delay(500); DBG("."); tries++;
-  }
+  // WiFi – slow blink while connecting
+  ledBlink(2, 300, 300);
+  connectWiFi();
 
-  if (WiFi.status() != WL_CONNECTED) {
-    delay(2000); ESP.restart();
-  }
+  // 3 quick blinks = WiFi OK + ready
+  ledBlink(3, 80, 80);
 
-  DBG("\n[WiFi] Connected\n");
-  DBG("[CAM] Ready\n");
+  // Tell the DevKit (and anyone monitoring) we are alive
+  Serial.println("READY");
+  Serial.flush();
 }
 
+// ============================================================
+//  LOOP
+// ============================================================
 void loop() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    DBG("[CAM] Received: %s\n", cmd.c_str());
-    if (cmd == "CAPTURE") handleCapture();
+    if (cmd == "CAPTURE") {
+      handleCapture();
+    }
+    // ignore anything else (noise, partial bytes, etc.)
   }
-  delay(20);
+  delay(10);
 }
 
 // ============================================================
 //  CAPTURE + POST TO SERVER
 // ============================================================
-
 void handleCapture() {
-  // ודא WiFi
-  if (WiFi.status() != WL_CONNECTED) {
-    WiFi.reconnect();
-    delay(3000);
-    if (WiFi.status() != WL_CONNECTED) { Serial.println("ERROR"); return; }
+  if (!ensureWiFi()) {
+    Serial.println("ERROR");
+    Serial.flush();
+    return;
   }
 
-  // Flash + צלם
+  // Flash on – capture
   digitalWrite(FLASH_LED_PIN, HIGH);
-  delay(80);
-  camera_fb_t* fb = captureImage();
+  delay(100);   // let auto-exposure settle
+  camera_fb_t* fb = esp_camera_fb_get();
   digitalWrite(FLASH_LED_PIN, LOW);
 
-  if (!fb) { Serial.println("ERROR"); return; }
+  if (!fb) {
+    Serial.println("ERROR");
+    Serial.flush();
+    return;
+  }
 
-  DBG("[CAM] Captured %d bytes\n", fb->len);
-
-  // שלח JPEG לשרת
+  // POST JPEG to server
   HTTPClient http;
   String url = String(SERVER_URL) + "/api/plates/recognize?gate_type=" + GATE_TYPE;
   http.begin(url);
   http.addHeader("Content-Type", "image/jpeg");
-  http.setTimeout(22000);
+  http.setTimeout(HTTP_TIMEOUT_MS);
 
   int code = http.POST(const_cast<uint8_t*>(fb->buf), fb->len);
   esp_camera_fb_return(fb);
 
   if (code != 200) {
-    DBG("[CAM] HTTP error: %d\n", code);
-    http.end(); Serial.println("ERROR"); return;
+    http.end();
+    Serial.println("ERROR");
+    Serial.flush();
+    return;
   }
 
   String body = http.getString();
   http.end();
-  DBG("[CAM] Server: %s\n", body.c_str());
 
-  // פרסר JSON
-  StaticJsonDocument<512> doc;
-  if (deserializeJson(doc, body) != DeserializationError::Ok) {
-    Serial.println("ERROR"); return;
-  }
+  // Parse JSON response (no external library)
+  bool   approved  = jsonBool(body, "approved");
+  String empName   = jsonStr(body, "employee_name");
+  String eventType = jsonStr(body, "event_type");
+  String reason    = jsonStr(body, "reason");
+  if (eventType.isEmpty()) eventType = "entry";
+  if (reason.isEmpty())    reason    = "Access denied";
 
-  bool        approved  = doc["approved"]      | false;
-  const char* empName   = doc["employee_name"] | "";
-  const char* eventType = doc["event_type"]    | "entry";
-  const char* reason    = doc["reason"]        | "Access denied";
-
-  // תשובה ל-DEVKITC
   if (approved) {
-    Serial.printf("APPROVED:%s:%s\n", empName, eventType);
+    Serial.printf("APPROVED:%s:%s\n", empName.c_str(), eventType.c_str());
+    ledBlink(2, 200, 100);   // 2 long blinks = approved
   } else {
-    Serial.printf("DENIED:%s\n", reason);
+    Serial.printf("DENIED:%s\n", reason.c_str());
+    ledBlink(5, 60, 60);     // rapid blinks = denied
   }
+  Serial.flush();
 }

@@ -43,7 +43,7 @@
 // ============================================================
 
 // מרחק בס"מ שמתחתיו מזהה רכב
-#define DETECTION_DISTANCE_CM   80.0f
+#define DETECTION_DISTANCE_CM   20.0f
 
 // זמן שהמחסום נשאר פתוח (ms)
 #define BARRIER_OPEN_DURATION   8000
